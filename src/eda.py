@@ -199,6 +199,10 @@ class EDA:
 
         plt.show()
 
+    # return the dataframe
+    def get_dataframe(self):
+        return self.df
+
         
 
                      
