@@ -2,6 +2,8 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.stats import chi2_contingency, ttest_ind, fisher_exact
+
 
 class EDA:
     # initialize the class and variable
@@ -203,8 +205,91 @@ class EDA:
     def get_dataframe(self):
         return self.df
 
+
+    # Group A and B based on KPI features for risk
+    def group_AB_risk(self,col):
+        col_grouped = self.df.groupby(col).agg(
+            total_claims = ('TotalClaims', 'sum'),
+            total_policy = ('PolicyID', 'count')
+        )
+
+        col_grouped['risk_score'] = col_grouped['total_claims'] / col_grouped['total_policy']
+
+        col_grouped.sort_values(by='risk_score', inplace=True)
+
+        median_risk = col_grouped['risk_score'].median()
+
+        group_a = self.df[self.df[col].isin(col_grouped[col_grouped['risk_score'] <= median_risk].index)]
+        group_b = self.df[self.df[col].isin(col_grouped[col_grouped['risk_score'] > median_risk].index)]
+
+        # undersampling for balancing    
+        size_of_smaller_group = min(len(group_a), len(group_b))
+        group_a_balanced = group_a.sample(size_of_smaller_group, random_state=42)
+        group_b_balanced = group_b.sample(size_of_smaller_group, random_state=42)
+
+        return group_a_balanced, group_b_balanced
+    
+    # Group A and B based on KPI features for risk
+    def group_AB_margin(self,col):
+        df = self.df
+        df['margin'] = df['TotalPremium'] - df['TotalClaims']
+
+        df.sort_values(by='margin', inplace=True)
+
+        median_profit = df['margin'].median()
+
+        group_a = df[df['margin'] <= median_profit]
+        group_b = df[df['margin'] > median_profit]
+
+        # undersampling for balancing    
+        size_of_smaller_group = min(len(group_a), len(group_b))
+        group_a_balanced = group_a.sample(size_of_smaller_group, random_state=42)
+        group_b_balanced = group_b.sample(size_of_smaller_group, random_state=42)
+
+        return group_a_balanced, group_b_balanced
+    
+    # check if the groups don't have statistics difference for categorical columns
+    def chi2_test(self,feature,col,group_a,group_b):
+        df_balanced = pd.concat([group_a, group_b])
+        df_balanced['group'] = df_balanced[feature].apply(lambda x: 'A' if x in group_a[feature].unique() else 'B')  
+        contingency_table = pd.crosstab(df_balanced['group'], df_balanced[col])
         
 
-                     
+        if (contingency_table.shape[0] < 2 or contingency_table.shape[1] < 2):
+            print(f"Skipping {col} due to insufficient data.")
+            return None, None
 
+        else:
+            _, p, _, _ = chi2_contingency(contingency_table)
 
+            # To calculate cramers_v
+            chi2 = chi2_contingency(contingency_table)[0]
+            n = contingency_table.sum().sum()
+            r, k = contingency_table.shape
+            v = np.sqrt(chi2 / (n * (min(r, k) - 1)))
+
+            return p, v
+    
+    # check if the groups don't have statistics difference for numerical columns
+    def t_test_numerical(self,feature,col,group_a,group_b):
+        values_a = self.df[self.df[feature].isin(group_a[feature].unique() )][col]
+        values_b = self.df[self.df[feature].isin(group_b[feature].unique() )][col]
+
+        t_stat, p_value = ttest_ind(values_a,values_b)
+
+        # effective size using cohen's d
+        mean_a = np.mean(values_a)
+        mean_b = np.mean(values_b)
+        std_a = np.std(values_a, ddof=1)  # Standard deviation for group A
+        std_b = np.std(values_b, ddof=1)  # Standard deviation for group B
+        n_a = len(values_a)
+        n_b = len(values_b)
+
+        # Pooled standard deviation
+        s_pooled = np.sqrt(((n_a - 1) * std_a**2 + (n_b - 1) * std_b**2) / (n_a + n_b - 2))
+
+        # Cohen's d
+        cohen_d = (mean_a - mean_b) / s_pooled
+
+        return p_value, cohen_d
+    
