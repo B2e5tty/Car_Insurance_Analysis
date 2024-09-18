@@ -4,6 +4,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import chi2_contingency, ttest_ind, fisher_exact
 
+from sklearn.preprocessing import  StandardScaler
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score, RandomizedSearchCV
+from sklearn.ensemble import RandomForestRegressor
+from xgboost import XGBRegressor
+from sklearn.metrics import mean_squared_error, r2_score
+
+# import shap
+
 
 class EDA:
     # initialize the class and variable
@@ -292,4 +301,132 @@ class EDA:
         cohen_d = (mean_a - mean_b) / s_pooled
 
         return p_value, cohen_d
+    
+    # function using one-hot encoding
+    def one_hot(self):
+        column = ['Gender','VehicleType', 'TermFrequency', 'Product', 'CoverType', 'StatutoryRiskType']
+
+        self.df = pd.get_dummies(self.df, columns = column, drop_first=True)
+
+        return self.df
+    
+
+    # function for linear modeling
+    def linear_model(self):
+        scaler = StandardScaler()
+        sampled_df = self.df.sample(frac=0.1, random_state=42)
+        x = sampled_df[['Profit','TotalClaims']]
+        y = sampled_df['RiskScore']
+
+        x_scaled = scaler.fit_transform(x)
+
+        x_train, x_test, y_train, y_test = train_test_split(x_scaled, y, test_size = 0.2, random_state = 42)
+
+        lr = LinearRegression()
+        cross_val_score(lr, x_train, y_train, cv = 5)
+        lr.fit(x_train,y_train)
+        y_hat = lr.predict(x_test)
+
+        print(f"Mean: {mean_squared_error(y_hat,y_test)}")
+        print(f"R2: {r2_score(y_hat,y_test)}")
+
+        # explainer
+        explainer = shap.Explainer(lr, x_train)
+
+        # Get SHAP values for the test set
+        shap_values = explainer(x_test)
+
+        # Plot SHAP values for a single prediction
+        shap.plots.waterfall(shap_values[0])
+
+        # Summary plot of feature importance
+        shap.summary_plot(shap_values, x_test)
+
+    # function for randomforest modeling
+    def ensemble_model(self):
+        scaler = StandardScaler()
+        sampled_df = self.df.sample(frac=0.1, random_state=42)
+        x = sampled_df[['Profit','TotalClaims']]
+        y = sampled_df['RiskScore']
+
+        x_scaled = scaler.fit_transform(x)
+
+        x_train, x_test, y_train, y_test = train_test_split(x_scaled, y, test_size = 0.2, random_state = 42)
+
+        rand = RandomForestRegressor(random_state=42)
+
+        # Set up the hyperparameter grid
+        param_grid = {
+            'n_estimators': [100, 200, 300],
+            'max_depth': [None, 10, 20],
+            'min_samples_split': [2, 5, 7],
+            'min_samples_leaf': [1, 2, 3]
+        }
+
+        grid_search = RandomizedSearchCV(estimator=rand, param_distributions=param_grid,n_iter=10, cv=3, scoring='neg_mean_squared_error', verbose=2, n_jobs=-1)
+        grid_search.fit(x_train,y_train)
+
+        # Use the best model
+        best = grid_search.best_estimator_
+        y_hat = best.predict(x_test)
+
+        print(f"Mean: {mean_squared_error(y_hat,y_test)}")
+        print(f"R2: {r2_score(y_hat,y_test)}")
+
+        # explainer
+        explainer = shap.Explainer(lr, x_train)
+
+        # Get SHAP values for the test set
+        shap_values = explainer(x_test)
+
+        # Plot SHAP values for a single prediction
+        shap.plots.waterfall(shap_values[0])
+
+        # Summary plot of feature importance
+        shap.summary_plot(shap_values, x_test)
+
+
+   # function for xgboost modeling
+    def xgboost_model(self):
+        scaler = StandardScaler()
+        sampled_df = self.df.sample(frac=0.1, random_state=42)
+        x = sampled_df[['Profit','TotalClaims']]
+        y = sampled_df['RiskScore']
+
+        x_scaled = scaler.fit_transform(x)
+
+        x_train, x_test, y_train, y_test = train_test_split(x_scaled, y, test_size = 0.2, random_state = 42)
+
+        xg = XGBRegressor(random_state=42)
+
+        # Set up the hyperparameter grid
+        param_grid = {
+            'n_estimators': [100, 200, 300],
+            'learning_rate': [0.01, 0.1,0.03],
+            'max_depth': [3, 5, 7],
+            'subsample': [0.8, 1.0, 2.0]
+        }
+
+        grid_search = GridSearchCV(estimator=xg, param_grid=param_grid, cv=3, scoring='neg_mean_squared_error', verbose=2, n_jobs=-1)
+        grid_search.fit(x_train,y_train)
+
+        # Use the best model
+        best = grid_search.best_estimator_
+        y_hat = best.predict(x_test)
+
+        print(f"Mean: {mean_squared_error(y_hat,y_test)}")
+        print(f"R2: {r2_score(y_hat,y_test)}")
+
+        # explainer
+        explainer = shap.Explainer(lr, x_train)
+
+        # Get SHAP values for the test set
+        shap_values = explainer(x_test)
+
+        # Plot SHAP values for a single prediction
+        shap.plots.waterfall(shap_values[0])
+
+        # Summary plot of feature importance
+        shap.summary_plot(shap_values, x_test)
+
     
